@@ -1,0 +1,12 @@
+.idea
+alf_data_dev
+target
+*.iml
+/old
+/customer-test
+/java_cacerts
+*.log
+*.log*
+.settings
+.project
+.classpath

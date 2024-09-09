@@ -1,0 +1,97 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE beans PUBLIC '-//SPRING//DTD BEAN//EN' 'http://www.springframework.org/dtd/spring-beans.dtd'>
+
+<beans>
+  <!-- Caching Content Store -->
+  <bean id="defaultCachedS3BackedContentStore" class="org.alfresco.repo.content.caching.CachingContentStore" init-method="init">
+    <!-- MinIO sẽ là backing store -->
+    <property name="backingStore" ref="s3ContentStore"/>
+    <property name="cache" ref="defaultS3ContentCache"/>
+    <property name="cacheOnInbound" value="${system.content.caching.cacheOnInbound}"/>
+    <property name="quota" ref="defaultS3QuotaManager"/>
+  </bean>
+
+  <!-- Cấu hình cache cho nội dung -->
+  <bean id="defaultS3ContentCache" class="org.alfresco.repo.content.caching.ContentCacheImpl">
+    <property name="memoryStore" ref="defaultS3CachingContentStoreCache"/>
+    <property name="cacheRoot" value="${defaultS3ContentCache.cachedcontent}"/>
+  </bean>
+
+  <bean id="defaultS3CachingContentStoreCache" factory-bean="cacheFactory" factory-method="createCache">
+    <constructor-arg value="cache.cachingContentStoreCache"/>
+  </bean>
+
+  <!-- Quản lý quota cho cache -->
+  <bean id="defaultS3QuotaManager"
+        class="org.alfresco.repo.content.caching.quota.StandardQuotaStrategy"
+        init-method="init"
+        destroy-method="shutdown">
+    <property name="maxUsageMB" value="${defaultS3QuotaManager.maxUsageMB}"/>
+    <property name="maxFileSizeMB" value="${defaultS3QuotaManager.maxFileSizeMB}"/>
+    <property name="cache" ref="defaultS3ContentCache"/>
+    <property name="cleaner" ref="defaultS3CachedContentCleaner"/>
+  </bean>
+
+  <!-- Cấu hình cho việc dọn dẹp cache -->
+  <bean id="defaultS3CachingContentStoreCleanerJobDetail" class="org.springframework.scheduling.quartz.JobDetailFactoryBean">
+    <property name="jobClass" value="org.alfresco.repo.content.caching.cleanup.CachedContentCleanupJob" />
+    <property name="jobDataAsMap">
+      <map>
+        <entry key="cachedContentCleaner" value-ref="defaultS3CachedContentCleaner"/>
+      </map>
+    </property>
+  </bean>
+
+  <bean id="defaultS3CachedContentCleaner" class="org.alfresco.repo.content.caching.cleanup.CachedContentCleaner" init-method="init">
+    <property name="minFileAgeMillis" value="${system.content.caching.minFileAgeMillis}"/>
+    <property name="maxDeleteWatchCount" value="${system.content.caching.maxDeleteWatchCount}"/>
+    <property name="cache" ref="defaultS3ContentCache"/>
+    <property name="usageTracker" ref="defaultS3QuotaManager"/>
+  </bean>
+
+  <bean id="defaultS3CachingContentStoreCleanerTrigger" class="org.alfresco.schedule.AlfrescoSchedulerAccessorBean">
+    <property name="scheduler" ref="schedulerFactory" />
+    <property name="triggers">
+      <list>
+        <bean id="defaultS3CachingContentStoreCleaner" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">
+          <property name="cronExpression" value="${system.content.caching.contentCleanup.cronExpression}" />
+          <property name="jobDetail" ref="defaultS3CachingContentStoreCleanerJobDetail" />
+        </bean>
+      </list>
+    </property>
+  </bean>
+
+  <!-- Cấu hình cho MinIO Store -->
+  <bean id="s3ContentStore" class="org.redpill.alfresco.s3.S3ContentStore" init-method="init">
+    <property name="accessKey" value="${minio.accessKey}"/>
+    <property name="secretKey" value="${minio.secretKey}"/>
+    <property name="bucketName" value="${minio.s3.bucketName}"/>
+    <property name="rootDirectory" value="${minio.s3.rootDirectory}"/>
+    <property name="endpoint" value="${minio.s3.endpoint}"/>
+  </bean>
+
+  <!-- Cấu hình AggregatingContentStore -->
+ <bean id="fileContentStore" class="org.alfresco.repo.content.replication.AggregatingContentStore">
+    <!-- MinIO là store chính -->
+<!--    <property name="primaryStore" ref="localDriveContentStore" />-->
+    <property name="primaryStore" ref="defaultCachedS3BackedContentStore" />
+
+    <!-- File system là store dự phòng -->
+    <property name="secondaryStores">
+      <list>
+<!--        <ref bean="defaultCachedS3BackedContentStore"/>-->
+        <ref bean="localDriveContentStore"/>
+      </list>
+    </property>
+  </bean>
+
+  <!-- File content store mặc định -->
+<!--  <bean id="defaultFileContentStore" class="org.alfresco.repo.content.filestore.FileContentStore">-->
+<!--    <constructor-arg index="0" value="/usr/local/tomcat/alf_data/contentstore"/>-->
+<!--  </bean>-->
+
+  <bean id="localDriveContentStore" class="org.alfresco.repo.content.filestore.FileContentStore">
+    <constructor-arg value="${dir.root}/contentstore"/>
+  </bean>
+
+</beans>
